@@ -57,7 +57,10 @@
   </main>
 
   <!-- 全局 FFmpeg（非模块），更兼容 -->
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.4/dist/ffmpeg.min.js"></script>
-  <script src="script.js"></script>
+  <script id="ffmpeg-cdn"
+        src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"
+        onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js'">
+</script>
+<script src="script.js"></script>
 </body>
 </html>
