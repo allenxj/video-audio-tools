@@ -1,15 +1,60 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Video Cutter & Audio Extractor</title>
+  <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-  <h1>Video Cutter & Audio Extractor</h1>
-  <input type="file" id="uploader" />
-  <button id="cut">Cut Video</button>
-  <button id="extract">Extract Audio</button>
-  <a id="download" style="display:none">Download Result</a>
+  <main class="wrap">
+    <h1>Video Cutter & Audio Extractor</h1>
+
+    <div class="card">
+      <div class="row">
+        <label class="file">
+          <span>Select a video file</span>
+          <input type="file" id="uploader" accept="video/*" />
+        </label>
+
+        <div class="notice" id="status">Waiting for file…</div>
+      </div>
+
+      <div class="grid">
+        <section>
+          <h3>Cut Video</h3>
+          <label>Start (HH:MM:SS)
+            <input id="start" placeholder="00:00:00" value="00:00:00"/>
+          </label>
+          <label>Duration (seconds)
+            <input id="duration" type="number" min="1" value="10"/>
+          </label>
+          <button id="cut" disabled>Cut</button>
+        </section>
+
+        <section>
+          <h3>Extract Audio</h3>
+          <label>Format
+            <select id="audioFmt">
+              <option value="mp3">mp3</option>
+              <option value="wav">wav</option>
+              <option value="aac">aac</option>
+            </select>
+          </label>
+          <button id="extract" disabled>Extract</button>
+        </section>
+      </div>
+
+      <div class="progress">
+        <div id="bar" class="bar" style="width:0%"></div>
+      </div>
+
+      <a id="download" class="download" style="display:none" download>Download result</a>
+    </div>
+  </main>
+
+  <!-- 用非模块脚本，避免某些浏览器/跨源模块加载失败 -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.4/dist/ffmpeg.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
