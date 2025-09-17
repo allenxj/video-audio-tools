@@ -1,5 +1,4 @@
-// 直接从 ESM CDN 加载 ffmpeg ESM 包（国外快、稳定）
-import { createFFmpeg, fetchFile } from "https://esm.sh/@ffmpeg/ffmpeg@0.12.6";
+// script.js 需要以 <script type="module" src="script.js"></script> 的方式引入
 
 const $ = (id) => document.getElementById(id);
 const uploader      = $('uploader');
@@ -16,104 +15,147 @@ const setStatus = (m) => statusEl.textContent = m;
 const setBar    = (r) => bar.style.width = Math.min(100, Math.round((r || 0) * 100)) + '%';
 const enable    = (ok) => { cutBtn.disabled = !ok; extractBtn.disabled = !ok; };
 
-// —— 三个 corePath 候选：国外优先 unpkg，失败则 jsDelivr；再不行就用你网站本地 /ffmpeg/ ——
-// 以后如果你把 core 三个文件（ffmpeg-core.js/.wasm/.worker.js）放到仓库 /ffmpeg/ 目录，第三个回退就会生效。
-const CORE_UNPKG   = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js';
-const CORE_JSDELIV = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js';
-const CORE_LOCAL   = '/ffmpeg/ffmpeg-core.js';
+// 1) 动态 import 的多个候选（先 jsDelivr 的 +esm，再 esm.sh，最后你站点本地镜像）
+const ESM_CANDIDATES = [
+  // jsDelivr 的 ESM 自动打包（最稳）
+  "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/+esm",
+  // esm.sh 备份
+  "https://esm.sh/@ffmpeg/ffmpeg@0.12.6",
+  // 如果你之后把整包放到自己站点（可选）
+  "/ffmpeg/ffmpeg.esm.js"
+];
 
-let ffmpeg = null;
+// 2) wasm core 的多个候选（unpkg → jsDelivr → 本地）
+const CORE_UNPKG   = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js";
+const CORE_JSDELIV = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js";
+const CORE_LOCAL   = "/ffmpeg/ffmpeg-core.js";
 
-async function loadFFmpegWithFallback() {
-  // 一次尝试一个 corePath
-  const tries = [CORE_UNPKG, CORE_JSDELIV, CORE_LOCAL];
-  for (const url of tries) {
+let FF = null;     // { createFFmpeg, fetchFile }
+let ffmpeg = null; // 实例
+
+async function loadESMWithFallback() {
+  let lastErr;
+  for (const url of ESM_CANDIDATES) {
     try {
-      setStatus(`Loading FFmpeg core… (${url.includes('unpkg') ? 'unpkg' : url.includes('jsdelivr') ? 'jsDelivr' : 'local'})`);
-      ffmpeg = createFFmpeg({ log: true, corePath: url });
-      await ffmpeg.load();
-      return; // 成功
+      setStatus(`Loading FFmpeg module… (${url})`);
+      FF = await import(url);
+      if (FF?.createFFmpeg && FF?.fetchFile) return;
+      throw new Error("Invalid ESM module shape");
     } catch (e) {
-      console.warn('load failed, try next:', url, e);
+      lastErr = e;
+      console.warn("ESM import failed:", url, e);
     }
   }
-  throw new Error('All FFmpeg core sources failed to load.');
+  throw lastErr || new Error("All ESM sources failed");
 }
 
-// —— 文件选择状态 ——
-let file = null, isAudio = false, inputName = 'input.dat';
+async function loadCoreWithFallback() {
+  const candidates = [CORE_UNPKG, CORE_JSDELIV, CORE_LOCAL];
+  let lastErr;
+  for (const corePath of candidates) {
+    try {
+      setStatus(`Loading FFmpeg core… (${corePath.includes('unpkg') ? 'unpkg' : corePath.includes('jsdelivr') ? 'jsDelivr' : 'local'})`);
+      ffmpeg = FF.createFFmpeg({ log: true, corePath });
+      await ffmpeg.load();
+      ffmpeg.setProgress(({ ratio }) => setBar(ratio));
+      ffmpeg.setLogger(() => {});
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.warn("core load failed:", corePath, e);
+    }
+  }
+  throw lastErr || new Error("All core sources failed");
+}
 
-uploader.addEventListener('change', (e) => {
+async function ensureReady(file, inputName) {
+  if (!file) throw new Error("Please choose a file first.");
+  if (!FF)     await loadESMWithFallback();
+  if (!ffmpeg || !ffmpeg.isLoaded()) await loadCoreWithFallback();
+  setStatus("Preparing file…");
+  await ffmpeg.FS("writeFile", inputName, await FF.fetchFile(file));
+  setBar(0);
+}
+
+// —— 选择文件后启用按钮 ——
+let file = null, isAudio = false, inputName = "input.dat";
+uploader.addEventListener("change", (e) => {
   file = e.target.files?.[0] || null;
-  if (!file) { setStatus('Waiting for file…'); enable(false); return; }
-  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
-  isAudio = (file.type || '').startsWith('audio') || ['mp3','wav','aac','flac','ogg','m4a'].includes(ext);
+  if (!file) { setStatus("Waiting for file…"); enable(false); return; }
+  const ext = (file.name.split(".").pop() || "dat").toLowerCase();
+  isAudio = (file.type || "").startsWith("audio") || ["mp3","wav","aac","flac","ogg","m4a"].includes(ext);
   inputName = `input.${ext}`;
   setStatus(`Selected: ${file.name} (${Math.round(file.size/1024/1024)} MB)`);
   enable(true); setBar(0);
 });
 
-// —— 日志与进度条（在实例创建后挂上） ——
-function attachMonitors() {
-  ffmpeg.setProgress(({ ratio }) => setBar(ratio));
-  ffmpeg.setLogger(() => {}); // 如需调试可输出日志
-}
-
-// —— 统一准备工作：加载 core + 写入文件 ——
-async function ensureReady() {
-  if (!file) throw new Error('Please choose a file first.');
-  if (!ffmpeg || !ffmpeg.isLoaded()) {
-    await loadFFmpegWithFallback();
-    attachMonitors();
-  }
-  setStatus('Preparing file…');
-  ffmpeg.FS('writeFile', inputName, await fetchFile(file));
-  setBar(0);
-}
-
-// —— 剪裁：视频或音频都可 ——
-cutBtn.addEventListener('click', async () => {
+// —— 剪裁 ——
+cutBtn.addEventListener("click", async () => {
   try {
     enable(false);
-    await ensureReady();
+    await ensureReady(file, inputName);
 
-    const start = (startInput.value || '00:00:00').trim();
-    const duration = (durationInput.value || '10').toString();
+    const start    = (startInput.value || "00:00:00").trim();
+    const duration = (durationInput.value || "10").toString();
 
-    setStatus(`Cutting ${isAudio ? 'audio' : 'video'}…`);
+    setStatus(`Cutting ${isAudio ? "audio" : "video"}…`);
 
     if (isAudio) {
-      await ffmpeg.run('-ss', start, '-t', duration, '-i', inputName,
-                       '-acodec','libmp3lame','-q:a','0', 'output.mp3');
-      const data = ffmpeg.FS('readFile', 'output.mp3');
-      const url  = URL.createObjectURL(new Blob([data.buffer], { type: 'audio/mpeg' }));
-      download.href = url; download.download = 'cut.mp3';
+      await ffmpeg.run("-ss", start, "-t", duration, "-i", inputName, "-acodec", "libmp3lame", "-q:a", "0", "output.mp3");
+      const data = ffmpeg.FS("readFile", "output.mp3");
+      const url  = URL.createObjectURL(new Blob([data.buffer], { type: "audio/mpeg" }));
+      download.href = url; download.download = "cut.mp3";
     } else {
-      await ffmpeg.run('-ss', start, '-t', duration, '-i', inputName,
-                       '-c:v','libx264','-preset','veryfast','-c:a','aac','-movflags','faststart',
-                       'output.mp4');
-      const data = ffmpeg.FS('readFile', 'output.mp4');
-      const url  = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
-      download.href = url; download.download = 'cut.mp4';
+      await ffmpeg.run("-ss", start, "-t", duration, "-i", inputName, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-movflags", "faststart", "output.mp4");
+      const data = ffmpeg.FS("readFile", "output.mp4");
+      const url  = URL.createObjectURL(new Blob([data.buffer], { type: "video/mp4" }));
+      download.href = url; download.download = "cut.mp4";
     }
 
-    download.style.display = 'inline-block';
-    setStatus('Done. Click “Download result”.');
+    download.style.display = "inline-block";
+    setStatus("Done. Click “Download result”.");
   } catch (e) {
-    console.error(e);
-    alert('Cut failed: ' + e.message);
-    setStatus('Error: ' + e.message);
+    console.error(e); alert("Cut failed: " + e.message); setStatus("Error: " + e.message);
   } finally {
     enable(true); setBar(1);
   }
 });
 
-// —— 抽取/转码：视频→音频；或音频→另一种音频 ——
-extractBtn.addEventListener('click', async () => {
+// —— 抽取/转码 ——
+extractBtn.addEventListener("click", async () => {
   try {
     enable(false);
-    await ensureReady();
+    await ensureReady(file, inputName);
 
     const fmt = audioFmt.value;
-    const out = 'audio.' + fmt;
-    setStatus(isAudio ? `Conver
+    const out = "audio." + fmt;
+    setStatus(isAudio ? `Converting to ${fmt}…` : "Extracting audio…");
+
+    const argsVideo = {
+      mp3: ["-i",inputName,"-vn","-acodec","libmp3lame","-q:a","0", out],
+      wav: ["-i",inputName,"-vn","-acodec","pcm_s16le","-ar","44100","-ac","2", out],
+      aac: ["-i",inputName,"-vn","-acodec","aac","-b:a","192k", out],
+    };
+    const argsAudio = {
+      mp3: ["-i",inputName,"-acodec","libmp3lame","-q:a","0", out],
+      wav: ["-i",inputName,"-acodec","pcm_s16le","-ar","44100","-ac","2", out],
+      aac: ["-i",inputName,"-acodec","aac","-b:a","192k", out],
+    };
+
+    await ffmpeg.run(...(isAudio ? argsAudio[fmt] : argsVideo[fmt]));
+
+    const mime = { mp3: "audio/mpeg", wav: "audio/wav", aac: "audio/aac" }[fmt];
+    const data = ffmpeg.FS("readFile", out);
+    const url  = URL.createObjectURL(new Blob([data.buffer], { type: mime }));
+    download.href = url; download.download = out; download.style.display = "inline-block";
+    setStatus("Done. Click “Download result”.");
+  } catch (e) {
+    console.error(e); alert("Extract failed: " + e.message); setStatus("Error: " + e.message);
+  } finally {
+    enable(true); setBar(1);
+  }
+});
+
+// 初始禁用
+enable(false);
+setStatus("Waiting for file…");
