@@ -11,7 +11,6 @@
     <h1>Video Cutter & Audio Extractor</h1>
 
     <div class="card">
-      <!-- 选择文件 + 状态 -->
       <div class="row">
         <label class="file">
           <span>Select a file (video or audio)</span>
@@ -21,7 +20,6 @@
       </div>
 
       <div class="grid">
-        <!-- 剪裁 -->
         <section>
           <h3>Cut</h3>
           <label>
@@ -35,7 +33,6 @@
           <button id="cut" disabled>Cut</button>
         </section>
 
-        <!-- 抽取/转码音频 -->
         <section>
           <h3>Extract / Convert Audio</h3>
           <label>
@@ -50,17 +47,12 @@
         </section>
       </div>
 
-      <!-- 进度条 + 下载 -->
       <div class="progress"><div id="bar" class="bar" style="width:0%"></div></div>
       <a id="download" class="download" style="display:none" download>Download result</a>
     </div>
   </main>
 
-  <!-- 全局 FFmpeg（非模块），更兼容 -->
-  <script id="ffmpeg-cdn"
-        src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"
-        onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js'">
-</script>
-<script src="script.js"></script>
+  <!-- 这里不再直接引入任何 ffmpeg 脚本，让 script.js 里用 ESM import 处理并带回退 -->
+  <script type="module" src="script.js"></script>
 </body>
 </html>
