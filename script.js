@@ -1,55 +1,71 @@
-// 直接从 CDN 加载 @ffmpeg/ffmpeg，并指定 corePath
-import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.4/dist/ffmpeg.min.js';
+// 使用全局 FFmpeg 对象（来自 index.html 中的 <script src="...ffmpeg.min.js">）
+const { createFFmpeg, fetchFile } = FFmpeg;
 
 const ffmpeg = createFFmpeg({
   log: true,
   corePath: 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/ffmpeg-core.js'
 });
 
-const uploader = document.getElementById('uploader');
-const cutBtn = document.getElementById('cut');
-const extractBtn = document.getElementById('extract');
-const startInput = document.getElementById('start');
-const durationInput = document.getElementById('duration');
-const audioFmt = document.getElementById('audioFmt');
-const logEl = document.getElementById('log');
-const download = document.getElementById('download');
+const $ = (id) => document.getElementById(id);
+const uploader   = $('uploader');
+const cutBtn     = $('cut');
+const extractBtn = $('extract');
+const startInput = $('start');
+const durationInput = $('duration');
+const audioFmt   = $('audioFmt');
+const statusEl   = $('status');
+const bar        = $('bar');
+const download   = $('download');
 
-let file;
+let file = null;
+
+function setStatus(msg){ statusEl.textContent = msg; }
+function setBar(ratio){ bar.style.width = Math.min(100, Math.round(ratio*100)) + '%'; }
+function enableActions(v){ cutBtn.disabled = !v; extractBtn.disabled = !v; }
 
 uploader.addEventListener('change', (e) => {
-  file = e.target.files?.[0];
-  log('Selected: ' + (file ? file.name : 'None'));
+  file = e.target.files?.[0] || null;
+  if (file) {
+    setStatus(`Selected: ${file.name} (${Math.round(file.size/1024/1024)} MB)`);
+    enableActions(true);
+  } else {
+    setStatus('Waiting for file…');
+    enableActions(false);
+  }
 });
 
-function log(msg) {
-  logEl.innerText = msg;
-}
+ffmpeg.setProgress(({ ratio }) => setBar(ratio || 0));
+ffmpeg.setLogger(({ type, message }) => {
+  // 需要可视日志可以打开下一行
+  // console.log(`[${type}] ${message}`);
+});
 
-async function ensureFFmpeg() {
-  if (!ffmpeg.isLoaded()) {
-    log('Loading FFmpeg (first time may take ~10s)…');
-    await ffmpeg.load();
-    log('FFmpeg loaded.');
-  }
+async function ensureReady() {
   if (!file) throw new Error('Please choose a video first.');
-  // 把文件写进 FFmpeg 的内存文件系统
+  if (!ffmpeg.isLoaded()) {
+    setStatus('Loading FFmpeg (first time may take 10–20s)…');
+    await ffmpeg.load();
+  }
+  setStatus('Preparing file…');
   ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(file));
+  setBar(0);
 }
 
 cutBtn.onclick = async () => {
   try {
-    await ensureFFmpeg();
+    enableActions(false);
+    await ensureReady();
+
     const start = startInput.value || '00:00:00';
     const duration = (durationInput.value || '10').toString();
+    setStatus('Cutting video…');
 
-    log('Cutting…');
-    // 更通用的做法：重新编码，避免关键帧对齐问题
     await ffmpeg.run(
       '-ss', start,
       '-t', duration,
       '-i', 'input.mp4',
-      '-c:v', 'libx264', '-c:a', 'aac',
+      '-c:v', 'libx264', '-preset', 'veryfast',
+      '-c:a', 'aac',
       '-movflags', 'faststart',
       'output.mp4'
     );
@@ -59,21 +75,26 @@ cutBtn.onclick = async () => {
     download.href = url;
     download.download = 'cut.mp4';
     download.style.display = 'inline-block';
-    log('Done. Click "Download result".');
+    setStatus('Done. Click “Download result”.');
   } catch (e) {
     console.error(e);
-    log('Error: ' + e.message);
+    alert('Failed: ' + e.message);
+    setStatus('Error: ' + e.message);
+  } finally {
+    enableActions(true);
+    setBar(1);
   }
 };
 
 extractBtn.onclick = async () => {
   try {
-    await ensureFFmpeg();
-    const fmt = audioFmt.value; // mp3/wav/aac
-    const out = 'audio.' + fmt;
+    enableActions(false);
+    await ensureReady();
 
-    log('Extracting audio…');
-    // 直接提取音频，mp3 用 libmp3lame，wav 为 pcm_s16le，aac 用 aac
+    const fmt = audioFmt.value; // mp3 / wav / aac
+    const out = 'audio.' + fmt;
+    setStatus('Extracting audio…');
+
     const args = {
       mp3: ['-i','input.mp4','-vn','-acodec','libmp3lame','-q:a','0', out],
       wav: ['-i','input.mp4','-vn','-acodec','pcm_s16le','-ar','44100','-ac','2', out],
@@ -88,9 +109,13 @@ extractBtn.onclick = async () => {
     download.href = url;
     download.download = out;
     download.style.display = 'inline-block';
-    log('Done. Click "Download result".');
+    setStatus('Done. Click “Download result”.');
   } catch (e) {
     console.error(e);
-    log('Error: ' + e.message);
+    alert('Failed: ' + e.message);
+    setStatus('Error: ' + e.message);
+  } finally {
+    enableActions(true);
+    setBar(1);
   }
 };
