@@ -13,12 +13,11 @@ h1{font-size:28px; font-weight:700; margin:0 0 18px}
 }
 .row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .file{display:flex;align-items:center;gap:10px; background:#0f1117; border:1px dashed #2b3142; padding:10px 12px; border-radius:10px}
-.file input{accent-color:var(--brand)}
 .notice{color:var(--muted)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:18px 0}
 @media (max-width:760px){ .grid{grid-template-columns:1fr} }
 section{border:1px solid #1f2330;border-radius:12px;padding:14px;background:#0f1117}
-label{display:flex;justify-content:space-between;align-items:center;margin:8px 0;color:#cfd6e6}
+label{display:flex;justify-content:space-between;align-items:center;margin:8px 0;color:#cfd6e6;gap:10px}
 input,select{
   background:#0b0e14; border:1px solid #2b3142; color:var(--text);
   padding:8px 10px; border-radius:10px; min-width:160px;
